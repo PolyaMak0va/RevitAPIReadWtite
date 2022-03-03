@@ -21,49 +21,72 @@ namespace RevitAPIReadWtite
             UIDocument uidoc = uiapp.ActiveUIDocument;
             Document doc = uidoc.Document;
 
-            // научимся задавать путь сохранения нашего файла
+            // рассмотрим запись данных с текстового файла в значения параметров модели
+
+            // в первую очередь, когда будем записывать какие-то данные с текстового файла, надо указать с какого именно текстового файла
+
+            // для этого воспользуемся диалоговым окном
+            OpenFileDialog openFileDialog = new OpenFileDialog();
+            openFileDialog.InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            openFileDialog.Filter = "All files (*.*)|*.*";
+
+            // надо создать переменную, которую сохранит путь к файлу
+            string filePath = string.Empty;
+
+            // если путь к сохранению файла указан, тогда мы забираем этот путь
+            if (openFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                filePath = openFileDialog.FileName;
+            }
+
+            // Однако если строка null или пустая, то возвращаем рузельтат и таким образом, заканчиваем выполнение нашей программы
+            if (string.IsNullOrEmpty(filePath))
+                return Result.Cancelled;
+
+            // забираем все строки из текстового файла
+            var lines = File.ReadAllLines(filePath).ToList();
+
+            // когда считали все данные, надо как-то их сохранить и удобнее работать
+            // создаём переменную списка RoomData
+            List<RoomData> roomDataList = new List<RoomData>();
+            foreach (var line in lines)
+            {
+                List<string> values = line.Split(';').ToList();         //разделяем каждую строку по значению разделителя
+                roomDataList.Add(new RoomData
+                {
+                    Name = values[0],
+                    Number = values[1]
+                });
+            }
+
+            // теперь остаётся записать собранные данные в наше помещение, кот-е есть в модели.
+            // условия: изменяем имя помещения, согласно номеру
+
             string roomInfo = string.Empty;
 
-            // собираем сами помещения
             var rooms = new FilteredElementCollector(doc)
                 .OfCategory(BuiltInCategory.OST_Rooms)
                 .Cast<Room>()
                 .ToList();
 
-            foreach (Room room in rooms)
+            using (var ts = new Transaction(doc, "Set parameters"))
             {
-                // извлекаем имя помещения
-                string roomName = room.get_Parameter(BuiltInParameter.ROOM_NAME).AsString();
+                ts.Start();
 
-                // заполняем переменную roomInfo новыми данными
-                roomInfo += $"{roomName}\t{room.Number}\t{room.Area}{Environment.NewLine}";
+                foreach (RoomData roomData in roomDataList)
+                {
+                    // находим то помещение с номером, которое указано в RoomData
+                    Room room = rooms.FirstOrDefault(r => r.Number.Equals(roomData.Number));  // находим помещение, кот-е совпадает по номеру с данными из текстового файла
+
+                    // если помещение не найдено
+                    if (room == null)
+                        continue;
+
+                    // обращаемся к параметру имени
+                    room.get_Parameter(BuiltInParameter.ROOM_NAME).Set(roomData.Name);
+                }
+                ts.Commit();
             }
-
-            // для того, чтобы вызвать путь к сохранению файла
-            var saveDialog = new SaveFileDialog
-            {
-                // свойство OverwritePrompt, если файл уже существует, выдавать запрос на его перезапись
-                OverwritePrompt = true,                                                              // выдавать
-                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Desktop),     // с какой папки начинается сравнение файла
-                Filter = "All files (*.*)|(*.*)",                                                    // будут отображаться файлы всех форматов
-                FileName = "roomInfo.csv",                                                           // при этом можно будет изменить наименование файла
-                DefaultExt = ".csv"                                                                  // расширение по умолчанию
-            };
-
-            // создадим переменную, которую сохранит выбранный пользователем путь
-            string selectedFilePath = string.Empty;
-            if (saveDialog.ShowDialog() == DialogResult.OK)                                          //если сохранение файла прошло успешно
-            {
-                selectedFilePath = saveDialog.FileName;                                              // тогда я забираю введённый путь и сохраняю его в selectedFilePath
-            }
-
-            // если путь не был указан, то стоит выйти из данного метода и завершить выполнение программы
-            if (string.IsNullOrEmpty(selectedFilePath))
-                return Result.Cancelled;
-
-            // если всё в порядке, вызываю статический метод
-            File.WriteAllText(selectedFilePath, roomInfo);
-
             return Result.Succeeded;
         }
     }
