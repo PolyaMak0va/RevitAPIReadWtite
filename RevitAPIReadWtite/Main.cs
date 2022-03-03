@@ -45,7 +45,6 @@ namespace RevitAPIReadWtite
             string csvPath = Path.Combine(decktopPath, "roomInfo.csv");
 
             File.WriteAllText(csvPath, roomInfo);
-
             return Result.Succeeded;
         }
     }
