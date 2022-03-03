@@ -8,11 +8,12 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Windows.Forms;
 
 namespace RevitAPIReadWtite
 {
     [Transaction(TransactionMode.Manual)]
-    public class Main : IExternalCommand 
+    public class Main : IExternalCommand
     {
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
@@ -20,7 +21,7 @@ namespace RevitAPIReadWtite
             UIDocument uidoc = uiapp.ActiveUIDocument;
             Document doc = uidoc.Document;
 
-            // определим переменную, кот-я будет собирать данные по помещениям: имя, номер помещения и площадь
+            // научимся задавать путь сохранения нашего файла
             string roomInfo = string.Empty;
 
             // собираем сами помещения
@@ -38,13 +39,31 @@ namespace RevitAPIReadWtite
                 roomInfo += $"{roomName}\t{room.Number}\t{room.Area}{Environment.NewLine}";
             }
 
-            // теперь нужно эти данные где-то сохранить, напр., на раб. столе
-            string decktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop); // получаем путь к папке раб. стола
+            // для того, чтобы вызвать путь к сохранению файла
+            var saveDialog = new SaveFileDialog
+            {
+                // свойство OverwritePrompt, если файл уже существует, выдавать запрос на его перезапись
+                OverwritePrompt = true,                                                              // выдавать
+                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Desktop),     // с какой папки начинается сравнение файла
+                Filter = "All files (*.*)|(*.*)",                                                    // будут отображаться файлы всех форматов
+                FileName = "roomInfo.csv",                                                           // при этом можно будет изменить наименование файла
+                DefaultExt = ".csv"                                                                  // расширение по умолчанию
+            };
 
-            // указываем полный путь к новому файлу с данными roomInfo. Для этого соединяем путь к папке и roomInfo.csv 
-            string csvPath = Path.Combine(decktopPath, "roomInfo.csv");
+            // создадим переменную, которую сохранит выбранный пользователем путь
+            string selectedFilePath = string.Empty;
+            if (saveDialog.ShowDialog() == DialogResult.OK)                                          //если сохранение файла прошло успешно
+            {
+                selectedFilePath = saveDialog.FileName;                                              // тогда я забираю введённый путь и сохраняю его в selectedFilePath
+            }
 
-            File.WriteAllText(csvPath, roomInfo);
+            // если путь не был указан, то стоит выйти из данного метода и завершить выполнение программы
+            if (string.IsNullOrEmpty(selectedFilePath))
+                return Result.Cancelled;
+
+            // если всё в порядке, вызываю статический метод
+            File.WriteAllText(selectedFilePath, roomInfo);
+
             return Result.Succeeded;
         }
     }
