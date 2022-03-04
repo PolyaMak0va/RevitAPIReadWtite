@@ -23,48 +23,74 @@ namespace RevitAPIReadWtite
             UIDocument uidoc = uiapp.ActiveUIDocument;
             Document doc = uidoc.Document;
 
-            // загрузим библиотеку NPOI для работы с файлами Excel: нажимаем правой кнопкой мыши на "Ссылки" в "Обозревателе решений"; в браузере ищем NPOI, скачиваем и устанавливаем
-            // записываем данные в файл Excel
-            string roomInfo = string.Empty;
+            // научимся считывать данные из файла Excel и записывать высчитанные значения параметров в наши экземпляры семейств
+            OpenFileDialog openFileDialog = new OpenFileDialog
+            {
+                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                Filter = "Excel files(*.xlsx)|*.xlsx"
+            };
+
+            string filePath = string.Empty;
+            if (openFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                filePath = openFileDialog.FileName;
+            }
+
+            // если путь не указан
+            if (string.IsNullOrEmpty(filePath))
+                return Result.Cancelled;
 
             var rooms = new FilteredElementCollector(doc)
                 .OfCategory(BuiltInCategory.OST_Rooms)
                 .Cast<Room>()
                 .ToList();
 
-            // определим путь, по кот-му будет сохраняться файл Excel
-            string excelPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "rooms.xlsx");
-
-            // создаём файл
-            // excelPath - путь к нахождению файла
-            // FileMode.Create - создаём файл
-            // FileAccess.Write - записываем в него данные
-            using (FileStream stream = new FileStream(excelPath, FileMode.Create, FileAccess.Write))
+            // должны открыть по указ-му пути файл Excel и просчитать из него данные
+            using (FileStream stream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
             {
-                // виртуально создали книгу, файл Excel
-                IWorkbook workbook = new XSSFWorkbook();
+                // создаём переменную для чтения файла Excel
+                IWorkbook workbook = new XSSFWorkbook(filePath);
 
-                // создадим там же лист
-                ISheet sheet = workbook.CreateSheet("Лист1");
+                //далее берём лист, с кот-го будем считывать данные
+                ISheet sheet = workbook.GetSheetAt(index: 0); // берём самый первый лист
 
-                // заполнить данными файл Excel, но перед этим надо создать метод (SheetExts), кот. позволит это делать и поозволит делать код читаемым
+                //далее проходим построчно файл в Excel и собирать данные
                 int rowIndex = 0;
-                foreach (var room in rooms) // проходимя по каждому помещению, кот-е есть в модели
+                while (sheet.GetRow(rowIndex) != null)  // до тех пор, пока строка есть, считываем данные, когда не будет - заканчиваем данный цикл
                 {
-                    sheet.SetCellValue(rowIndex, columnIndex: 0, room.Name); // записываем 1-е значение в 1-ю строку, 1-й столбец
-                    sheet.SetCellValue(rowIndex, columnIndex: 1, room.Number);
-                    sheet.SetCellValue(rowIndex, columnIndex: 2, room.Area);
-                    rowIndex++;
+                    // если в указ-й строке в указ-м столбце ячейка пустая либо ячейка пустая во 2-м столбце текущей строке, переходим к след-й итерации
+                    if (sheet.GetRow(rowIndex).GetCell(0) == null ||
+                        sheet.GetRow(rowIndex).GetCell(1) == null)
+                    {
+                        rowIndex++;
+                        continue;
+                    }
+
+                    // считываем данные из файла Excel
+                    string name = sheet.GetRow(rowIndex).GetCell(0).StringCellValue;
+                    string number = sheet.GetRow(rowIndex).GetCell(1).StringCellValue;
+
+                    // далее из всех собранных помещений в модели ищем помещение с указ-м номером
+                    var room = rooms.FirstOrDefault(r => r.Number.Equals(number));
+
+                    if (room == null)
+                    {
+                        rowIndex++;
+                        continue;
+                    }
+
+                    // создаём транзакцию, в кот-ю записываем данные
+                    using (var ts = new Transaction(doc, "Set parameters"))
+                    {
+                        ts.Start();
+                        // берём параметр помещения, его имя и вписываем его Set(name)
+                        room.get_Parameter(BuiltInParameter.ROOM_NAME).Set(name);
+                        ts.Commit();
+                    }
+                    // для того, чтобы переходить каждый раз к новой строке, если всё прошло удачно
+                    rowIndex++; 
                 }
-
-                // после всех действий, нужно будет файл Excel закрыть
-                workbook.Write(stream);
-                workbook.Close();
             }
-
-            // в самом конце, собрали все помещения и собрали все данные, можно запустить файл Excel автоматически
-            System.Diagnostics.Process.Start(excelPath);
-
             return Result.Succeeded;
         }
     }
