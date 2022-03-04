@@ -24,32 +24,52 @@ namespace RevitAPIReadWtite
             UIDocument uidoc = uiapp.ActiveUIDocument;
             Document doc = uidoc.Document;
 
-            // научимся записывать данные из файла ревита в формат .json
+            // рассмотрим чтение данных из файла .json
             // сначала надо загрузить библиотеку JSON
+
+            OpenFileDialog openFileDialog = new OpenFileDialog
+            {
+                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                Filter = "Json files (*.json)|*.json"
+            };
+
+            string filePath = string.Empty;
+            if (openFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                filePath = openFileDialog.FileName;
+            }
+
+            if (string.IsNullOrEmpty(filePath))
+                return Result.Cancelled;
+
             var rooms = new FilteredElementCollector(doc)
                 .OfCategory(BuiltInCategory.OST_Rooms)
                 .Cast<Room>()
                 .ToList();
 
-            var roomDataList = new List<RoomData>();
+            // считываем данные из текстового файла
+            string json = File.ReadAllText(filePath);
+            List<RoomData> roomDataList = JsonConvert.DeserializeObject<List<RoomData>>(json);
 
-            // далее будем записывать определённые данные по помещениям
-            // пройдёмся по каждому помещению
-            foreach (var room in rooms)
+            using (var ts = new Transaction(doc, "Set Parameter"))
             {
-                roomDataList.Add(new RoomData
+                ts.Start();
+
+                foreach (RoomData roomData in roomDataList)
                 {
-                    Name = room.Name,
-                    Number = room.Number
-                });
+                    Room room = rooms.FirstOrDefault(r => r.Number.Equals(roomData.Number));
+
+                    if (room == null)
+                        continue;
+
+                    room.get_Parameter(BuiltInParameter.ROOM_NAME).Set(roomData.Name);
+                }
+
+                ts.Commit();
             }
-
-            // преобразуем roomDataList в формат .json
-            string json = JsonConvert.SerializeObject(roomDataList, Formatting.Indented);
-
-            File.WriteAllText(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "data.json"), json);
-
             return Result.Succeeded;
         }
+
     }
 }
+
