@@ -2,6 +2,8 @@
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.UI;
+using NPOI.SS.UserModel;
+using NPOI.XSSF.UserModel;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -21,47 +23,8 @@ namespace RevitAPIReadWtite
             UIDocument uidoc = uiapp.ActiveUIDocument;
             Document doc = uidoc.Document;
 
-            // рассмотрим запись данных с текстового файла в значения параметров модели
-
-            // в первую очередь, когда будем записывать какие-то данные с текстового файла, надо указать с какого именно текстового файла
-
-            // для этого воспользуемся диалоговым окном
-            OpenFileDialog openFileDialog = new OpenFileDialog();
-            openFileDialog.InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-            openFileDialog.Filter = "All files (*.*)|*.*";
-
-            // надо создать переменную, которую сохранит путь к файлу
-            string filePath = string.Empty;
-
-            // если путь к сохранению файла указан, тогда мы забираем этот путь
-            if (openFileDialog.ShowDialog() == DialogResult.OK)
-            {
-                filePath = openFileDialog.FileName;
-            }
-
-            // Однако если строка null или пустая, то возвращаем рузельтат и таким образом, заканчиваем выполнение нашей программы
-            if (string.IsNullOrEmpty(filePath))
-                return Result.Cancelled;
-
-            // забираем все строки из текстового файла
-            var lines = File.ReadAllLines(filePath).ToList();
-
-            // когда считали все данные, надо как-то их сохранить и удобнее работать
-            // создаём переменную списка RoomData
-            List<RoomData> roomDataList = new List<RoomData>();
-            foreach (var line in lines)
-            {
-                List<string> values = line.Split(';').ToList();         //разделяем каждую строку по значению разделителя
-                roomDataList.Add(new RoomData
-                {
-                    Name = values[0],
-                    Number = values[1]
-                });
-            }
-
-            // теперь остаётся записать собранные данные в наше помещение, кот-е есть в модели.
-            // условия: изменяем имя помещения, согласно номеру
-
+            // загрузим библиотеку NPOI для работы с файлами Excel: нажимаем правой кнопкой мыши на "Ссылки" в "Обозревателе решений"; в браузере ищем NPOI, скачиваем и устанавливаем
+            // записываем данные в файл Excel
             string roomInfo = string.Empty;
 
             var rooms = new FilteredElementCollector(doc)
@@ -69,24 +32,39 @@ namespace RevitAPIReadWtite
                 .Cast<Room>()
                 .ToList();
 
-            using (var ts = new Transaction(doc, "Set parameters"))
+            // определим путь, по кот-му будет сохраняться файл Excel
+            string excelPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "rooms.xlsx");
+
+            // создаём файл
+            // excelPath - путь к нахождению файла
+            // FileMode.Create - создаём файл
+            // FileAccess.Write - записываем в него данные
+            using (FileStream stream = new FileStream(excelPath, FileMode.Create, FileAccess.Write))
             {
-                ts.Start();
+                // виртуально создали книгу, файл Excel
+                IWorkbook workbook = new XSSFWorkbook();
 
-                foreach (RoomData roomData in roomDataList)
+                // создадим там же лист
+                ISheet sheet = workbook.CreateSheet("Лист1");
+
+                // заполнить данными файл Excel, но перед этим надо создать метод (SheetExts), кот. позволит это делать и поозволит делать код читаемым
+                int rowIndex = 0;
+                foreach (var room in rooms) // проходимя по каждому помещению, кот-е есть в модели
                 {
-                    // находим то помещение с номером, которое указано в RoomData
-                    Room room = rooms.FirstOrDefault(r => r.Number.Equals(roomData.Number));  // находим помещение, кот-е совпадает по номеру с данными из текстового файла
-
-                    // если помещение не найдено
-                    if (room == null)
-                        continue;
-
-                    // обращаемся к параметру имени
-                    room.get_Parameter(BuiltInParameter.ROOM_NAME).Set(roomData.Name);
+                    sheet.SetCellValue(rowIndex, columnIndex: 0, room.Name); // записываем 1-е значение в 1-ю строку, 1-й столбец
+                    sheet.SetCellValue(rowIndex, columnIndex: 1, room.Number);
+                    sheet.SetCellValue(rowIndex, columnIndex: 2, room.Area);
+                    rowIndex++;
                 }
-                ts.Commit();
+
+                // после всех действий, нужно будет файл Excel закрыть
+                workbook.Write(stream);
+                workbook.Close();
             }
+
+            // в самом конце, собрали все помещения и собрали все данные, можно запустить файл Excel автоматически
+            System.Diagnostics.Process.Start(excelPath);
+
             return Result.Succeeded;
         }
     }
